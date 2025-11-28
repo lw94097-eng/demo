@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>午餐吃什麼決定器</title>
+    <!-- 載入 Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 設定 Inter 字體和深色模式樣式 -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a1a2e; /* 深藍色背景 */
+            color: #e0e0e0; /* 淺灰色文字 */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        /* 轉盤容器 - 讓指標可以定位在中央上方 */
+        .wheel-container {
+            position: relative;
+            display: inline-block;
+            margin: 0 auto;
+        }
+
+        /* 轉盤指針 */
+        .pointer {
+            position: absolute;
+            top: 0; /* 定位在轉盤上方 */
+            left: 50%;
+            transform: translate(-50%, -100%) translateY(10px); /* 向上移動並微調位置 */
+            width: 0;
+            height: 0;
+            border-left: 15px solid transparent;
+            border-right: 15px solid transparent;
+            border-bottom: 30px solid #f97316; /* 橘色指針 */
+            z-index: 10;
+            filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.5));
+        }
+
+        /* 轉盤動畫容器 */
+        #roulette-wheel {
+            transition: transform 5s cubic-bezier(0.25, 0.1, 0.25, 1); /* 平滑的加速和減速 */
+        }
+    </style>
+</head>
+<body class="dark">
+
+    <div class="p-4 md:p-8 w-full max-w-4xl">
+        <h1 class="text-4xl md:text-5xl font-extrabold text-center mb-10 text-teal-400">
+            🍴 午餐命運轉盤 🎲
+        </h1>
+
+        <!-- 主要佈局：轉盤與控制項 (在手機上堆疊，桌面上左右並排) -->
+        <div class="flex flex-col md:flex-row gap-10">
+
+            <!-- 左側：轉盤顯示區 -->
+            <div class="md:w-1/2 flex justify-center items-center">
+                <div class="wheel-container">
+                    <div class="pointer"></div>
+                    <canvas id="roulette-wheel" width="400" height="400" class="rounded-full bg-gray-800 shadow-2xl border-4 border-teal-500"></canvas>
+                </div>
+            </div>
+
+            <!-- 右側：控制面板與結果 -->
+            <div class="md:w-1/2 space-y-8">
+                
+                <!-- 結果顯示區 -->
+                <div class="bg-gray-800 p-6 rounded-xl shadow-xl border border-gray-700">
+                    <h2 class="text-2xl font-bold mb-3 text-white">今日決定：</h2>
+                    <p id="result-display" class="text-3xl font-extrabold text-orange-400">點擊「開始旋轉」</p>
+                    <div id="message-box" class="mt-4 p-3 bg-red-800 text-red-200 rounded-lg hidden"></div>
+                </div>
+
+                <!-- 旋轉按鈕 -->
+                <button id="spin-button" class="w-full py-4 text-xl font-bold rounded-lg shadow-xl bg-teal-500 text-gray-900 hover:bg-teal-400 transition duration-300 transform hover:scale-[1.01] disabled:opacity-50 disabled:cursor-not-allowed">
+                    開始旋轉！
+                </button>
+
+                <!-- 選項管理區 -->
+                <div class="bg-gray-800 p-6 rounded-xl shadow-xl border border-gray-700">
+                    <h2 class="text-2xl font-bold mb-4 text-white">管理你的午餐選項</h2>
+                    
+                    <!-- 新增選項輸入 -->
+                    <div class="flex space-x-2 mb-4">
+                        <input type="text" id="new-option-input" placeholder="例如：日式拉麵" class="flex-grow px-4 py-2 rounded-lg bg-gray-900 border border-gray-600 text-white focus:ring-teal-500 focus:border-teal-500">
+                        <button id="add-option-button" class="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-500 transition duration-150 transform hover:scale-105">新增</button>
+                    </div>
+
+                    <!-- 選項列表 -->
+                    <div id="options-list" class="space-y-2 max-h-48 overflow-y-auto pr-2">
+                        <!-- 選項將會被 JavaScript 渲染在這裡 -->
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // DOM 元素
+        const canvas = document.getElementById('roulette-wheel');
+        const ctx = canvas.getContext('2d');
+        const spinButton = document.getElementById('spin-button');
+        const resultDisplay = document.getElementById('result-display');
+        const newOptionInput = document.getElementById('new-option-input');
+        const addOptionButton = document.getElementById('add-option-button');
+        const optionsList = document.getElementById('options-list');
+        const messageBox = document.getElementById('message-box');
+
+        // 轉盤狀態
+        let options = [
+            "日式料理", "義大利麵", "清爽沙拉", "牛肉麵", "自助餐", "速食店"
+        ];
+        let spinning = false;
+        let startAngle = 0; // 追蹤轉盤的起始角度，確保動畫連續
+        const arc = Math.PI / (options.length / 2); // 每個選項的角度 (弧度)
+
+        // 顏色列表
+        const colorPalette = [
+            '#ef4444', // red-500
+            '#f97316', // orange-500
+            '#eab308', // yellow-500
+            '#22c55e', // green-500
+            '#06b6d4', // cyan-500
+            '#3b82f6', // blue-500
+            '#8b5cf6', // violet-500
+            '#ec4899', // pink-500
+        ];
+
+        // 輔助函數：顯示訊息
+        function showMessage(text, isError = false) {
+            messageBox.textContent = text;
+            messageBox.classList.remove('hidden', 'bg-red-800', 'bg-green-700');
+            if (isError) {
+                messageBox.classList.add('bg-red-800', 'text-red-200');
+            } else {
+                messageBox.classList.add('bg-green-700', 'text-white');
+            }
+            setTimeout(() => {
+                messageBox.classList.add('hidden');
+            }, 3000);
+        }
+
+        // 1. 繪製轉盤
+        function drawRouletteWheel() {
+            if (options.length === 0) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                // 在沒有選項時顯示提示
+                ctx.fillStyle = '#4b5563'; // gray-600
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#e5e7eb'; // gray-200
+                ctx.font = '20px Inter';
+                ctx.textAlign = 'center';
+                ctx.fillText('請新增選項', canvas.width / 2, canvas.height / 2);
+                return;
+            }
+
+            // 更新每個選項的角度
+            const currentArc = Math.PI * 2 / options.length;
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const radius = centerX;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            for (let i = 0; i < options.length; i++) {
+                const angle = startAngle + i * currentArc;
+
+                // 繪製扇形
+                ctx.fillStyle = colorPalette[i % colorPalette.length];
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius, angle, angle + currentArc, false);
+                ctx.lineTo(centerX, centerY);
+                ctx.fill();
+
+                // 繪製文字
+                ctx.save();
+                ctx.fillStyle = '#1a1a2e'; // 深色文字，確保對比度
+                ctx.font = 'bold 16px Inter';
+                ctx.textAlign = 'center';
+                ctx.translate(centerX, centerY); // 移動原點到中心
+                ctx.rotate(angle + currentArc / 2); // 旋轉到扇形中間
+                // 計算文字位置 (距離中心半徑的 70%)
+                ctx.fillText(options[i], radius * 0.7, 0); 
+                ctx.restore();
+            }
+
+            // 繪製中心圓
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, 15, 0, Math.PI * 2, true);
+            ctx.fillStyle = '#1f2937'; // gray-800
+            ctx.fill();
+        }
+
+        // 2. 旋轉邏輯
+        function spin() {
+            if (spinning || options.length < 2) {
+                showMessage(options.length < 2 ? '請至少新增 2 個選項才能開始旋轉！' : '轉盤正在旋轉中...', true);
+                return;
+            }
+
+            spinning = true;
+            spinButton.disabled = true;
+            resultDisplay.textContent = '決定中...';
+
+            const numOptions = options.length;
+            const currentArc = Math.PI * 2 / numOptions;
+            
+            // 計算隨機停止角度 (弧度)
+            // 隨機選擇一個獲勝索引
+            const winningIndex = Math.floor(Math.random() * numOptions);
+            
+            // 獲勝扇形的中間角度 (相對於轉盤頂部，0度為指針位置)
+            // 由於指針在頂部，角度計算需要考慮偏移
+            // 轉盤的 0 度是右側，指針是頂部 (90度或 PI/2 弧度)
+            const angleForWinnerCenter = winningIndex * currentArc + currentArc / 2;
+            
+            // 為了讓指針指向中心，我們需要讓 winningIndex 的中心點旋轉到 PI/2 位置
+            // 隨機停止角度 = 額外的圈數 + 讓中線對準指針的角度
+            // totalRotation = N * 360 - (angleForWinnerCenterInDegrees + 90) % 360
+            
+            // 將弧度轉為度數
+            const angleForWinnerCenterDeg = angleForWinnerCenter * 180 / Math.PI;
+            
+            // 計算需要旋轉多少度才能讓 winningIndex 對準指針 (指針在頂部，即 270 度位置)
+            // 讓獲勝扇形的中心點落在 270 度位置 (canvas 坐標系: 0=右, 90=下, 180=左, 270=上)
+            const targetOffsetAngle = 270 - angleForWinnerCenterDeg;
+
+            // 確保旋轉多圈 (例如 5 圈以上)
+            const extraSpins = 5;
+            const totalRotationDeg = (extraSpins * 360) + targetOffsetAngle;
+            
+            // 將新的旋轉角度應用到 CSS 變形上
+            // 這裡使用 `startAngle` 來記錄上次的停止位置，保證連續性
+            // 注意：Canvas 的繪圖角度和 CSS 旋轉方向可能不同，這裡假設順時針
+            const newRotation = startAngle + totalRotationDeg;
+            
+            canvas.style.transform = `rotate(${newRotation}deg)`;
+            
+            // 更新 startAngle 以供下次旋轉使用
+            startAngle = newRotation % 360; // 記錄新的起始角度 (0-360)
+            
+            // 3. 確定結果 (在動畫結束後)
+            canvas.addEventListener('transitionend', function onTransitionEnd() {
+                canvas.removeEventListener('transitionend', onTransitionEnd);
+
+                spinning = false;
+                spinButton.disabled = false;
+                
+                // 顯示結果
+                const winner = options[winningIndex];
+                resultDisplay.textContent = winner;
+                resultDisplay.classList.remove('text-orange-400');
+                resultDisplay.classList.add('text-teal-400', 'animate-pulse');
+                
+                // 移除脈衝動畫
+                setTimeout(() => {
+                    resultDisplay.classList.remove('animate-pulse');
+                }, 1000);
+
+                // 為了下次繪製的準確性，雖然 CSS 旋轉了，但 Canvas 繪製的相對位置沒變
+                // 這裡不需要重新繪製，因為 CSS 處理了旋轉。
+                // 如果使用 requestAnimationFrame 則需要連續更新 drawRouletteWheel
+                // 這裡保持 drawRouletteWheel 不變，只在選項變動時才繪製。
+            });
+        }
+        
+        // 4. 管理選項 (新增)
+        function addOption() {
+            const newOption = newOptionInput.value.trim();
+            if (newOption && options.length < 12) { // 限制最多 12 個選項以確保可讀性
+                options.push(newOption);
+                newOptionInput.value = '';
+                renderOptionsList();
+                drawRouletteWheel();
+                showMessage(`已新增選項: ${newOption}`);
+            } else if (options.length >= 12) {
+                showMessage('選項數量過多，請保持在 12 個以內。', true);
+            }
+        }
+
+        // 5. 管理選項 (刪除)
+        function deleteOption(index) {
+            const deletedOption = options.splice(index, 1)[0];
+            renderOptionsList();
+            drawRouletteWheel();
+            showMessage(`已移除選項: ${deletedOption}`);
+        }
+
+        // 6. 渲染選項列表
+        function renderOptionsList() {
+            optionsList.innerHTML = '';
+            options.forEach((option, index) => {
+                const item = document.createElement('div');
+                item.className = 'flex justify-between items-center p-2 bg-gray-700 rounded-lg shadow-md';
+                item.innerHTML = `
+                    <span class="text-gray-200">${option}</span>
+                    <button data-index="${index}" class="delete-btn text-sm px-2 py-1 bg-red-600 hover:bg-red-500 text-white rounded-full transition duration-150">
+                        移除
+                    </button>
+                `;
+                optionsList.appendChild(item);
+            });
+
+            // 為所有新的「移除」按鈕添加事件監聽器
+            document.querySelectorAll('.delete-btn').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const index = parseInt(e.target.getAttribute('data-index'));
+                    deleteOption(index);
+                });
+            });
+        }
+        
+        // 7. 事件監聽器
+        spinButton.addEventListener('click', spin);
+        addOptionButton.addEventListener('click', addOption);
+        newOptionInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                addOption();
+            }
+        });
+
+        // 初始化
+        window.onload = function() {
+            // 確保 canvas 旋轉歸零
+            canvas.style.transform = `rotate(${startAngle}deg)`;
+            renderOptionsList();
+            drawRouletteWheel();
+        };
+
+    </script>
+</body>
+</html>
